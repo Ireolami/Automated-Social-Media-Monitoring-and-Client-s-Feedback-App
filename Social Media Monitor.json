@@ -1,0 +1,972 @@
+{
+  "name": "Social Media Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -992,
+        -144
+      ],
+      "id": "58c06390-d9bc-4dfd-9a94-e7faf9ecf450",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://api.twitterapi.io/twitter/tweet/advanced_search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "queryType",
+              "value": "Latest"
+            },
+            {
+              "name": "query",
+              "value": "Kuda.app"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -768,
+        -144
+      ],
+      "id": "ec5ac768-9ea2-4ead-9934-0f03fb8bed4c",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "WcinCqtiFT6Rbmt7",
+          "name": "Twitter Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const tweets = $input.first().json.tweets || [];\n\nreturn tweets.map(item => ({\n  json: {\n    source: 'twitter',\n    text: item.text,\n    title: item.text.substring(0, 80) + '...',\n    url: item.url,\n    publishedAt: item.createdAt,\n    author: '@' + item.author.userName,\n    authorFollowers: item.author.followers,\n    likeCount: item.likeCount,\n    retweetCount: item.retweetCount,\n    replyCount: item.replyCount,\n    viewCount: item.viewCount,\n    fetchedAt: new Date().toISOString()\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        -144
+      ],
+      "id": "f893306b-0a12-4bc3-a333-26a0ca0dcd2b",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "jsCode": "const NEGATIVE_KEYWORDS = [\n  // Direct complaints\n  'failed', 'failure', 'pending', 'stuck', 'delayed', 'delay',\n  'reversed', 'deducted', 'debited', 'missing', 'lost',\n  // Account issues\n  'blocked', 'frozen', 'locked', 'restricted', 'suspended',\n  'banned', 'closed', 'limit',\n  // App/service issues\n  'down', 'outage', 'crash', 'error', 'bug', 'glitch',\n  'not working', 'broken', 'slow', 'laggy', 'cannot',\n  \"can't\", 'cant', 'unable', 'keep', 'still', 'not loading', 'not opening', 'pami', 'malfunction', 'login',\n  // Trust issues\n  'scam', 'fraud', 'fake', 'hack', 'stolen', 'unauthorized',\n  'phishing', 'breach',\n  // Emotion words\n  'disappointed', 'frustrated', 'annoyed', 'angry', 'upset',\n  'terrible', 'horrible', 'awful', 'worst', 'bad', 'useless',\n  'rubbish', 'nonsense', 'shame', 'disgrace', 'beware',\n  'warning', 'avoid', 'refund', 'lawsuit', 'die', 'hunger',\n  'judge', 'posterity', 'heartbreak', 'cry', 'crying',\n  // Nigerian expressions\n  'abeg', 'wetin', 'una', 'una dey', 'this app', 'this bank',\n  'nonsense', 'rubbish', 'yeye', 'useless', 'wahala',\n  'no work', 'nor work', 'not enter', \"can't enter\",\n  'updated', 'update', 'still same', 'same thing',\n  // Punctuation signals\n  '💔', '😡', '😤', '🤬', '😭', '😢', '🥺'\n];\n\nconst POSITIVE_KEYWORDS = [\n  // Excellence\n  'amazing', 'excellent', 'outstanding', 'brilliant', 'fantastic',\n  'incredible', 'superb', 'perfect', 'flawless', 'smooth',\n  // Praise\n  'love', 'great', 'best', 'wonderful', 'recommend', 'impressed',\n  'happy', 'satisfied', 'helpful', 'easy', 'fast', 'nice',\n  'better', 'improved', 'working', 'works', 'finally',\n  // Banking specific\n  'seamless', 'instant', 'reliable', 'secure', 'convenient',\n  'affordable', 'free', 'innovative', 'trusted', 'legit',\n  // Gratitude\n  'thank', 'thanks', 'grateful', 'appreciate', 'congrats',\n  'well done', 'keep it up', 'good job', 'love it',\n  // Nigerian expressions\n  'e don work', 'don work', 'e work', 'sharp sharp',\n  'no dulling', 'correct', 'na them', 'them try',\n  // Positive emojis\n  '❤️', '🔥', '💯', '👏', '😍', '🙌', '✅', '😊', '🎉'\n];\n\nfunction classifySentiment(text) {\n  const lower = text.toLowerCase();\n\n  const negHits = NEGATIVE_KEYWORDS.filter(kw => lower.includes(kw.toLowerCase()));\n  const posHits = POSITIVE_KEYWORDS.filter(kw => lower.includes(kw.toLowerCase()));\n\n  let sentiment, score, matchedKeywords;\n\n  if (negHits.length > 0 && negHits.length >= posHits.length) {\n    sentiment       = 'negative';\n    score           = -negHits.length;\n    matchedKeywords = negHits.join(', ');\n  } else if (posHits.length > 0) {\n    sentiment       = 'positive';\n    score           = posHits.length;\n    matchedKeywords = posHits.join(', ');\n  } else {\n    sentiment       = 'neutral';\n    score           = 0;\n    matchedKeywords = 'none';\n  }\n\n  return { sentiment, score, matchedKeywords };\n}\n\nreturn $input.all().map(item => {\n  const { sentiment, score, matchedKeywords } = classifySentiment(item.json.text);\n\n  return {\n    json: {\n      ...item.json,\n      sentiment,\n      score,\n      matchedKeywords,\n      classifiedAt: new Date().toISOString()\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        -144
+      ],
+      "id": "8e5dc339-e078-4908-a68f-e1fd3198a9c3",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.sentiment }}",
+                    "rightValue": "negative",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "a26f6785-1082-4a41-95d5-044903a7bf21"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Negative Comments"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "85a81ebf-4416-4258-b3d8-ac807dd5a5d1",
+                    "leftValue": "={{ $json.sentiment }}",
+                    "rightValue": "positive",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Positive Comments"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -96,
+        -144
+      ],
+      "id": "1be69e2c-802f-44ad-92cb-3b2582712dde",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "chatId": "1121393566",
+        "text": "=Hello, we just get a negative comment from  {{ $json.source }} posted by {{ $json.author }}. The content of the post is {{ $json.text }}.\nCurrently, the post has {{ $json.viewCount }} views, {{ $json.likeCount }} Likes, {{ $json.retweetCount }} retweet, and {{ $json.replyCount }} comments.\nKindly reply through this link {{ $json.url }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        128,
+        -304
+      ],
+      "id": "03431b1a-25b6-4442-a572-1dd8a8ed7f25",
+      "name": "Send a text message",
+      "webhookId": "590bb6c0-b7e1-44b7-be73-b6f5fca50837",
+      "credentials": {
+        "telegramApi": {
+          "id": "NLbHvaoZhJVXFFW9",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "base": {
+          "__rl": true,
+          "value": "appvkHbZP4JzmPzgp",
+          "mode": "list",
+          "cachedResultName": "Social Media Monitoring",
+          "cachedResultUrl": "https://airtable.com/appvkHbZP4JzmPzgp"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblwMhf9BHDz8GNAh",
+          "mode": "list",
+          "cachedResultName": "All Reviews",
+          "cachedResultUrl": "https://airtable.com/appvkHbZP4JzmPzgp/tblwMhf9BHDz8GNAh"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Content": "={{ $json.text }}",
+            "Post url": "={{ $json.url }}",
+            "Author's Handle": "={{ $json.author }}",
+            "Total Likes": "={{ $('Code in JavaScript').item.json.likeCount }}",
+            "Total Replies": "={{ $('Code in JavaScript').item.json.replyCount }}",
+            "Total Quotes": "={{ $json.retweetCount }}",
+            "Total Impression": "={{ $json.viewCount }}",
+            "Title": "={{ $json.title }}",
+            "Total Comments": "={{ $json.replyCount }}",
+            "Sentiment": "={{ $json.sentiment }}",
+            "score": "={{ $json.score }}",
+            "Matched Keywords": "={{ $json.matchedKeywords }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Serial Number",
+              "displayName": "Serial Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Post url",
+              "displayName": "Post url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Content",
+              "displayName": "Content",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Author's Name",
+              "displayName": "Author's Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Author's Handle",
+              "displayName": "Author's Handle",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Author's Profile Picture",
+              "displayName": "Author's Profile Picture",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Total Likes",
+              "displayName": "Total Likes",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Comments",
+              "displayName": "Total Comments",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Impression",
+              "displayName": "Total Impression",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Replies",
+              "displayName": "Total Replies",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Quotes",
+              "displayName": "Total Quotes",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Sentiment",
+              "displayName": "Sentiment",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Matched Keywords",
+              "displayName": "Matched Keywords",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        -448
+      ],
+      "id": "63c9599d-5335-40f6-9982-e3cf4fe51aa0",
+      "name": "Create or update a record",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "tzBYID5ZsSq7NHqa",
+          "name": "Airtable Personal Access Token account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "base": {
+          "__rl": true,
+          "value": "appvkHbZP4JzmPzgp",
+          "mode": "list",
+          "cachedResultName": "Social Media Monitoring",
+          "cachedResultUrl": "https://airtable.com/appvkHbZP4JzmPzgp"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblxystg9Nah5ACkK",
+          "mode": "list",
+          "cachedResultName": "Negative Comments",
+          "cachedResultUrl": "https://airtable.com/appvkHbZP4JzmPzgp/tblxystg9Nah5ACkK"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Post url": "={{ $('Code in JavaScript1').item.json.url }}",
+            "Title": "={{ $('Code in JavaScript1').item.json.title }}",
+            "Content": "={{ $('Code in JavaScript1').item.json.text }}",
+            "Total Likes": "={{ $('Code in JavaScript1').item.json.likeCount }}",
+            "Total Replies": "={{ $('Code in JavaScript1').item.json.replyCount }}",
+            "Total Impression": "={{ $('Code in JavaScript1').item.json.viewCount }}",
+            "Total Comments": "={{ $('Code in JavaScript1').item.json.replyCount }}",
+            "Sentiment": "={{ $('Code in JavaScript1').item.json.sentiment }}",
+            "Total Quotes": "={{ $('Code in JavaScript1').item.json.retweetCount }}",
+            "Matched Keywords": "={{ $('Code in JavaScript1').item.json.matchedKeywords }}",
+            "score": "={{ $('Code in JavaScript1').item.json.score }}",
+            "Author's Handle": "={{ $json.author }}",
+            "Author's Profile Picture": "={{ $('HTTP Request').item.json.tweets[0].author.profilePicture }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Serial Number",
+              "displayName": "Serial Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Post url",
+              "displayName": "Post url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Content",
+              "displayName": "Content",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Author's Handle",
+              "displayName": "Author's Handle",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Author's Profile Picture",
+              "displayName": "Author's Profile Picture",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Likes",
+              "displayName": "Total Likes",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Comments",
+              "displayName": "Total Comments",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Impression",
+              "displayName": "Total Impression",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Replies",
+              "displayName": "Total Replies",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Quotes",
+              "displayName": "Total Quotes",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Sentiment",
+              "displayName": "Sentiment",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Matched Keywords",
+              "displayName": "Matched Keywords",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        112,
+        -528
+      ],
+      "id": "2950aa5d-05d2-4765-82ed-eefba4008f36",
+      "name": "Create or update a record1",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "tzBYID5ZsSq7NHqa",
+          "name": "Airtable Personal Access Token account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "1121393566",
+        "text": "=Hello, we just got a good review from {{ $('Code in JavaScript1').item.json.author }} on {{ $('Code in JavaScript1').item.json.source }}. The content is {{ $('Code in JavaScript1').item.json.text }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        112,
+        -48
+      ],
+      "id": "e315eb18-0911-4afa-a8b6-8d4d658786de",
+      "name": "Send a text message1",
+      "webhookId": "94eee5f4-055b-4705-b5ac-07e6617d08ed",
+      "credentials": {
+        "telegramApi": {
+          "id": "XjRqZUKdwBZbHLTn",
+          "name": "Telegram account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "base": {
+          "__rl": true,
+          "value": "appvkHbZP4JzmPzgp",
+          "mode": "list",
+          "cachedResultName": "Social Media Monitoring",
+          "cachedResultUrl": "https://airtable.com/appvkHbZP4JzmPzgp"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblL4V9QhpOFGrben",
+          "mode": "list",
+          "cachedResultName": "Positive Comments copy",
+          "cachedResultUrl": "https://airtable.com/appvkHbZP4JzmPzgp/tblL4V9QhpOFGrben"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "=",
+            "Post url": "={{ $('Code in JavaScript1').item.json.url }}",
+            "Title": "={{ $('Code in JavaScript1').item.json.title }}",
+            "Content": "={{ $('Code in JavaScript1').item.json.text }}",
+            "Author's Handle": "={{ $('Code in JavaScript1').item.json.author }}",
+            "Author's Profile Picture": "={{ $('HTTP Request').item.json.tweets[1].author.profilePicture }}",
+            "Total Likes": "={{ $('Code in JavaScript1').item.json.likeCount }}",
+            "Total Replies": "={{ $('Code in JavaScript1').item.json.replyCount }}",
+            "Total Impression": "={{ $('Code in JavaScript1').item.json.viewCount }}",
+            "Total Comments": "={{ $('Code in JavaScript1').item.json.replyCount }}",
+            "Sentiment": "={{ $('Code in JavaScript1').item.json.sentiment }}",
+            "score": "={{ $('Code in JavaScript1').item.json.score }}",
+            "Matched Keywords": "={{ $('Code in JavaScript1').item.json.matchedKeywords }}",
+            "Total Quotes": "={{ $('Code in JavaScript1').item.json.retweetCount }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Serial Number",
+              "displayName": "Serial Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Post url",
+              "displayName": "Post url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Content",
+              "displayName": "Content",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Author's Handle",
+              "displayName": "Author's Handle",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Author's Profile Picture",
+              "displayName": "Author's Profile Picture",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Likes",
+              "displayName": "Total Likes",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Comments",
+              "displayName": "Total Comments",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Impression",
+              "displayName": "Total Impression",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Replies",
+              "displayName": "Total Replies",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Total Quotes",
+              "displayName": "Total Quotes",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Sentiment",
+              "displayName": "Sentiment",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Matched Keywords",
+              "displayName": "Matched Keywords",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        112,
+        144
+      ],
+      "id": "85e7a12f-cbb8-4258-9c63-b2ba83223935",
+      "name": "Create or update a record2",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "tzBYID5ZsSq7NHqa",
+          "name": "Airtable Personal Access Token account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create or update a record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create or update a record1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create or update a record2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "71e2a032-0d6c-4720-ad17-b99f7bee8371",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "405c6c2bb47b565ecaed22648f61edb2b66a4fc1ab1cd2abd8b742daa3b2e98c"
+  },
+  "id": "5n3wzeRPySIsv-knYjUSi",
+  "tags": []
+}
